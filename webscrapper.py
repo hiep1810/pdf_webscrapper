@@ -1,5 +1,26 @@
 import requests
 import pdfkit
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+import time
+
+def get_rendered_html(url):
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-gpu")
+    
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    
+    try:
+        driver.get(url)
+        time.sleep(5)
+        html_content = driver.page_source
+        return html_content
+    finally:
+        driver.quit()
 
 def scrape_to_pdf(url, output_path):
     """Scrapes the given URL and saves the content to a PDF file."""
@@ -21,24 +42,14 @@ def scrape_to_pdf(url, output_path):
     }
 
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        }
-        
-        response = requests.get(url, headers=headers, verify=False)
-        response.raise_for_status()
-        
-        html_content = response.content.decode('utf-8')
+        # Sử dụng Selenium để lấy HTML đã render
+        html_content = get_rendered_html(url)
         
         print(f"Content length: {len(html_content)}")
         print("Attempting to generate PDF...")
         
         pdfkit.from_string(html_content, output_path, configuration=config, options=options)
         print(f"Successfully saved PDF to: {output_path}")
-
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching URL: {e}")
     except Exception as e:
         print(f"Error generating PDF: {e}")
 

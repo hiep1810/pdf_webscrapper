@@ -1,3 +1,5 @@
 requests
 pdfkit
 wkhtmltopdf
+webdriver-manager
+selenium
