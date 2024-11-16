@@ -1,59 +1,85 @@
-import requests
-import pdfkit
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import time
-
-def get_rendered_html(url):
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--disable-gpu")
-    
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    
-    try:
-        driver.get(url)
-        time.sleep(5)
-        html_content = driver.page_source
-        return html_content
-    finally:
-        driver.quit()
+import os
+import json
+import base64
 
 def scrape_to_pdf(url, output_path):
     """Scrapes the given URL and saves the content to a PDF file."""
+    output_path = os.path.abspath(output_path)
+    output_dir = os.path.dirname(output_path)
     
-    config = pdfkit.configuration(wkhtmltopdf=r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe")
-    
-    options = {
-        'enable-local-file-access': None,
-        'no-stop-slow-scripts': None,
-        'load-error-handling': 'ignore',
-        'load-media-error-handling': 'ignore',
-        'custom-header': [
-            ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-        ],
-        'no-outline': None,
-        'encoding': 'UTF-8',
-        'javascript-delay': '1000',  # Đợi 1 giây cho JavaScript load
-        'quiet': ''
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+
+    appState = {
+        'recentDestinations': [{
+            'id': 'Save as PDF',
+            'origin': 'local',
+            'account': ''
+        }],
+        'selectedDestinationId': 'Save as PDF',
+        'version': 2
     }
 
+    profile = {
+        'printing.print_preview_sticky_settings.appState': json.dumps(appState),
+        'savefile.default_directory': output_dir,
+        'download.default_directory': output_dir,
+        'download.prompt_for_download': False,
+        'download.directory_upgrade': True,
+        'plugins.always_open_pdf_externally': True
+    }
+    
+    chrome_options.add_experimental_option('prefs', profile)
+    
     try:
-        # Sử dụng Selenium để lấy HTML đã render
-        html_content = get_rendered_html(url)
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         
-        print(f"Content length: {len(html_content)}")
-        print("Attempting to generate PDF...")
+        print("Đang truy cập trang web...")
+        driver.get(url)
+        time.sleep(5)
         
-        pdfkit.from_string(html_content, output_path, configuration=config, options=options)
-        print(f"Successfully saved PDF to: {output_path}")
+        print("Đang tạo PDF...")
+        print_options = {
+            'landscape': False,
+            'displayHeaderFooter': False,
+            'printBackground': True,
+            'preferCSSPageSize': True,
+            'path': output_path
+        }
+        
+        result = driver.execute_cdp_cmd('Page.printToPDF', print_options)
+        
+        if 'data' in result:
+            print("Đang xử lý dữ liệu PDF...")
+            pdf_data = result.get('data', '')
+            try:
+                pdf_bytes = base64.b64decode(pdf_data)
+                with open(output_path, 'wb') as f:
+                    f.write(pdf_bytes)
+                print(f"PDF đã được lưu tại: {output_path}")
+            except Exception as e:
+                print(f"Lỗi khi xử lý PDF: {str(e)}")
+                print(f"Độ dài dữ liệu PDF: {len(pdf_data)}")
+                print(f"Vài ký tự đầu tiên: {pdf_data[:100]}")
+        else:
+            print("Không thể tạo PDF: Không có dữ liệu trả về")
+            
     except Exception as e:
-        print(f"Error generating PDF: {e}")
+        print(f"Lỗi: {str(e)}")
+    finally:
+        driver.quit()
 
 if __name__ == "__main__":
+    # Use the current working directory for saving the PDF
+    output_pdf_path = os.path.join(os.getcwd(), "notion_output.pdf")
+
     url_to_scrape = "https://pattern-attraction-029.notion.site/JCL-13b8c254ba0b80e8be29d4949d9e6c38"
-    output_pdf_path = "output.pdf"
     scrape_to_pdf(url_to_scrape, output_pdf_path)
