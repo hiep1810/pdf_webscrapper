@@ -8,18 +8,17 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def replace_slash(text):
-    """Replace all slashes with a underscore."""
-    return text.replace("/", "_")
-
 def remove_whitespace(text):
     """Remove all spaces, newlines, and tabs from the given text."""
     return text.replace(" ", "").replace("\n", "").replace("\t", "")
+
 
 def get_chrome_options():
     """Configure Chrome options for headless mode and PDF generation."""
@@ -27,26 +26,22 @@ def get_chrome_options():
     chrome_options.add_argument("--headless=new")  # Run Chrome in headless mode
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
-    
+
     # Configure print-to-PDF preferences
     app_state = {
-        'recentDestinations': [{
-            'id': 'Save as PDF',
-            'origin': 'local',
-            'account': ''
-        }],
-        'selectedDestinationId': 'Save as PDF',
-        'version': 2
+        "recentDestinations": [{"id": "Save as PDF", "origin": "local", "account": ""}],
+        "selectedDestinationId": "Save as PDF",
+        "version": 2,
     }
 
     profile = {
-        'printing.print_preview_sticky_settings.appState': json.dumps(app_state),
-        'download.prompt_for_download': False,
-        'download.directory_upgrade': True,
-        'plugins.always_open_pdf_externally': True
+        "printing.print_preview_sticky_settings.appState": json.dumps(app_state),
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "plugins.always_open_pdf_externally": True,
     }
-    
-    chrome_options.add_experimental_option('prefs', profile)
+
+    chrome_options.add_experimental_option("prefs", profile)
     return chrome_options
 
 
@@ -62,27 +57,59 @@ def initialize_driver(chrome_options):
         raise
 
 
+def clean_filename(filename):
+    """Remove invalid characters from filename."""
+    # Danh sách ký tự không hợp lệ trong tên file
+    invalid_chars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|']
+    
+    # Thay thế các ký tự không hợp lệ bằng dấu gạch dưới
+    for char in invalid_chars:
+        filename = filename.replace(char, '_')
+    
+    # Giới hạn độ dài tên file (tùy chọn)
+    max_length = 255  # Maximum filename length in most systems
+    if len(filename) > max_length:
+        filename = filename[:max_length]
+    
+    return filename
+
+
 def generate_pdf(driver, url):
     """Generate a PDF from the given URL and save it to the specified path."""
-    logger.info("Accessing webpage...")
+    logger.info(f"Accessing webpage... {url}")
     driver.get(url)
-    time.sleep(5)  # Allow time for the page to load
+
+    # Wait for the page to load completely
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.TAG_NAME, "body"))
+    )
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, ".shadow-cursor-breadcrumb"))
+    )
 
     logger.info("Generating PDF...")
     print_options = {
-        'landscape': False,
-        'displayHeaderFooter': False,
-        'printBackground': True,
-        'preferCSSPageSize': True,
+        "landscape": False,
+        "displayHeaderFooter": False,
+        "printBackground": True,
+        "preferCSSPageSize": True,
     }
 
     try:
-        result = driver.execute_cdp_cmd('Page.printToPDF', print_options)
+        result = driver.execute_cdp_cmd("Page.printToPDF", print_options)
 
-        if 'data' in result:
+        if "data" in result:
             logger.info("Processing PDF data...")
-            pdf_data = result.get('data', '')
-            return base64.b64decode(pdf_data), replace_slash(remove_whitespace(driver.find_elements(By.CSS_SELECTOR, '.shadow-cursor-breadcrumb')[0].text))
+            pdf_data = result.get("data", "")
+            clean_title = clean_filename(
+                remove_whitespace(
+                    driver.find_elements(
+                        By.CSS_SELECTOR,
+                        ".shadow-cursor-breadcrumb",
+                    )[0].text
+                ),
+            )
+            return base64.b64decode(pdf_data), clean_title
 
         else:
             logger.error("No data returned from PDF generation.")
@@ -96,56 +123,74 @@ def save_pdf(pdf_data, output_directory, title):
     """Save the PDF data to a file."""
     if pdf_data:
         try:
-            with open(os.path.join(output_directory, f"{title}.pdf"), 'wb') as f:
+            file_path = os.path.join(output_directory, f"{title}.pdf")
+            with open(file_path, "wb") as f:
                 f.write(pdf_data)
-            logger.info(f"PDF saved to: {os.path.join(output_directory, f'{title}.pdf')}")
+            logger.info(f"PDF saved to: {file_path}")
         except Exception as e:
             logger.error(f"Error saving PDF: {e}")
     else:
         logger.error("No PDF data to save.")
 
 
-def scrape_to_pdf(url, output_directory):
-    """Main function to scrape the webpage and save it as a PDF."""    
-    chrome_options = get_chrome_options()
-    
+def scrape_to_pdf(url, output_directory, driver=None):
+    """Main function to scrape the webpage and save it as a PDF."""
     try:
-        driver = initialize_driver(chrome_options)
-        
         pdf_data, title = generate_pdf(driver, url)
         save_pdf(pdf_data, output_directory, title)
 
     except Exception as e:
         logger.error(f"Scraping failed: {e}")
-    finally:
-        if 'driver' in locals():
-            driver.quit()
 
 
-def get_all_page_links(url):
+def get_all_page_links(url, driver):
     """Get all the links on the page."""
-    chrome_options = get_chrome_options()
-    driver = initialize_driver(chrome_options)
     driver.get(url)
-    time.sleep(5)
-    return [tag.get_attribute('href') for tag in driver.find_elements(By.CSS_SELECTOR, 'div[data-block-id] a')]
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-block-id] a"))
+    )
+    return [
+        tag.get_attribute("href")
+        for tag in driver.find_elements(By.CSS_SELECTOR, "div[data-block-id] a")
+    ]
 
 
+def recursive_scrape(url, output_directory, visited_links, driver):
+    """Recursively scrape a URL and its links to save PDFs."""
+    if url in visited_links:
+        return
+    visited_links.add(url)
 
-def recursive_scrape(url, output_directory):
-    """Recursive function to scrape all the pages and save them as PDFs."""
-    logger.info(f"Scraping {url}...")
-    scrape_to_pdf(url, output_directory)
-    links = get_all_page_links(url)
-    logger.info(f"Found {len(links)} links on the page.")
-    for link in links:
-        recursive_scrape(link, output_directory)
+    # Scrape and save the PDF
+    scrape_to_pdf(url, output_directory, driver)
+
+    # Get all the links on the page and recursively scrape them
+    try:
+        links = get_all_page_links(url, driver)
+        for link in links:
+            recursive_scrape(link, output_directory, visited_links, driver)
+    except Exception as e:
+        logger.error(f"Error during recursive scrape of {url}: {e}")
+
 
 if __name__ == "__main__":
-    # Use the current working directory to save the PDF
+    # Get the current directory
     current_directory = os.getcwd()
-    output_pdf_directory = os.path.join(current_directory, 'pdf')
+    output_pdf_directory = os.path.join(current_directory, "pdf")
+
+    if not os.path.exists(output_pdf_directory):
+        os.makedirs(output_pdf_directory)
+
 
     url_to_scrape = "https://pattern-attraction-029.notion.site/JCL-13b8c254ba0b80e8be29d4949d9e6c38"
-    
-    recursive_scrape(url_to_scrape, output_pdf_directory)
+
+    # Initialize the WebDriver once
+    chrome_options = get_chrome_options()
+    driver = initialize_driver(chrome_options)
+
+    # Initialize visited links set
+    visited_links = set()
+    try:
+        recursive_scrape(url_to_scrape, output_pdf_directory, visited_links, driver)
+    finally:
+        driver.quit()  # Make sure to quit the driver at the end
