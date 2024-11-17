@@ -59,14 +59,14 @@ def initialize_driver(chrome_options):
 
 def clean_filename(filename):
     """Remove invalid characters from filename."""
-    # Danh sách ký tự không hợp lệ trong tên file
+    # List of invalid characters in filenames
     invalid_chars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|']
     
-    # Thay thế các ký tự không hợp lệ bằng dấu gạch dưới
+    # Replace invalid characters with underscores
     for char in invalid_chars:
         filename = filename.replace(char, '_')
     
-    # Giới hạn độ dài tên file (tùy chọn)
+    # Limit the length of the filename (optional)
     max_length = 255  # Maximum filename length in most systems
     if len(filename) > max_length:
         filename = filename[:max_length]
@@ -182,7 +182,7 @@ if __name__ == "__main__":
         os.makedirs(output_pdf_directory)
 
 
-    url_to_scrape = "https://pattern-attraction-029.notion.site/JCL-13b8c254ba0b80e8be29d4949d9e6c38"
+    url_to_scrape = "https://pattern-attraction-029.notion.site/TSO-ISPF-Course-1358c254ba0b807a9eefdb0421361218"
 
     # Initialize the WebDriver once
     chrome_options = get_chrome_options()
